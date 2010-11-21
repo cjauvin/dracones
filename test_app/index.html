@@ -1,0 +1,40 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+
+<title>Dracones Test App</title>
+
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>
+<script type="text/javascript" src="/dracones_core/javascript/jquery.ajaxq-0.0.1.js"></script>
+<script type="text/javascript" src="/dracones_core/javascript/jquery.mousewheel.min.js"></script>
+<script type="text/javascript" src="/dracones_core/javascript/dracones.js"></script>
+
+</head>
+
+<body>
+
+  <h1>Dracones Test App</h1>
+
+  <p>If you can see and interact with a map below, Dracones is working!</p>
+
+  <div id="anchor_div" style="border: 1px solid black; width: 500px; height: 400px"></div>
+
+</body>
+
+<script type="text/javascript">
+
+jQuery(document).ready(function() {
+
+    var map = new dracones.MapWidget({
+        anchor_elem: 'anchor_div', 
+        app_name: 'dracones_test_app', 
+        mid: 'instance1', 
+        map: 'dracones_test_app', 
+        init_dlayers: 'montreal'
+    });
+});
+
+</script>
+
+</html>

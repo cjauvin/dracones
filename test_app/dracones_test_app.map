@@ -1,0 +1,15 @@
+MAP
+
+    EXTENT 263136.274911 5029212.10089 310999.944663 5062998.22072
+    IMAGETYPE png
+    
+    LAYER
+        TEMPLATE tmpl
+        NAME "montreal"
+        STATUS off
+        TYPE line
+        DATA "montreal"
+        CLASS STYLE COLOR 105 105 105   END END
+    END
+
+END
