@@ -31,9 +31,9 @@ var dracones = dracones || (function() {
         return false;
     }
 
-    // Touch-based interface detection
+    // Touch-based interface detection (todo!)
     var is_touch = false;
-    if (false) { // !!!
+    if (true) { // !!! 
         is_touch = true;
     }
 
