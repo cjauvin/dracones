@@ -31,6 +31,16 @@ var dracones = dracones || (function() {
         return false;
     }
 
+    // Touch-based interface detection
+    var is_touch = false;
+    if (false) { // !!!
+        is_touch = true;
+    }
+
+    var isDoubleTouch = function(e) {
+        return (typeof e.originalEvent.touches[1] !== 'undefined');
+    };
+    
     // make sure that all Dracones ajax queries are not cached
     jQuery.ajaxSetup({cache:false})
     var ajaxq_name = "dracones";
@@ -84,6 +94,9 @@ var dracones = dracones || (function() {
     // returns: { 'btn' : [left|right|none] 'mod' : [shift|ctrl|alt|none]}
     // !!! alt is not working in IE
     var getMouseEventValues = function(event) {
+        if (is_touch) {
+            return {mod: (touch_mode=='pan') ? 'none' : 'ctrl', btn:'left'};
+        }
         var val = { 'btn' : 'none', 'mod' : 'none' };
         if (event.button == 0 || event.button == 1) {
             val.btn = 'left';
@@ -209,6 +222,11 @@ var dracones = dracones || (function() {
             // click/dblclick distinction mechanism
             var click_timeout = null;
             var click_timeout_delay = 300;
+            var tap_timeout = null;         
+            var tap_timeout_delay = 300;
+            var touchdrag_timeout = null;
+            var touchdrag_timeout_delay = 300;
+            var pan_move_threshold = 50; // in px
             
             // current map extent (coming from server)
             var curr_extent = {
@@ -253,6 +271,49 @@ var dracones = dracones || (function() {
                 'z-index': 1001
             });
             this.point_zoom_marker.hide();
+
+            // Loading label (public for allowing external access through MapWidget instance)
+            if (is_touch) {
+                var touch_mode_btn = jQuery('<div><center>Pan</center></div>').appendTo(vp);
+                touch_mode_btn.css({
+                    position: 'absolute',
+                    background: 'lightgreen',
+                    border: '1px solid black',
+                    left: 0,
+                    top: map_vp_height - 20,
+                    width: 50,
+                    'z-index': 1002
+                });
+                touch_mode = 'pan'; // global
+                touch_mode_btn.click(function() {
+                    touch_mode = (touch_mode=='pan') ? 'select' : 'pan';
+                    touch_mode_btn.css({background: (touch_mode=='pan') ? 'lightgreen' : 'lightblue'});
+                    touch_mode_btn.html((touch_mode=='pan') ? '<center>Pan</center>' : '<center>Select</center>');
+                    for (var i = 0; i < 2; i++) {
+                        moving_anchors[i].map_img.unbind('touchmove', selectBoxMove);
+                        moving_anchors[i].map_img.unbind('touchend', selectBoxUp);
+                    }
+                    select_box.unbind('touchmove');
+                    select_box.unbind('touchend');
+                });
+                var touch_zoom_btn = jQuery('<div><center>Zoom In</center></div>').appendTo(vp);
+                touch_zoom_btn.css({
+                    position: 'absolute',
+                    background: 'coral',
+                    border: '1px solid black',
+                    left: map_vp_width - 82,
+                    top: map_vp_height - 20,
+                    width: 80,
+                    'z-index': 1003
+                });
+                touch_zoom = 'in'; // global
+                touch_zoom_btn.click(function() {
+                    touch_zoom = (touch_zoom=='in') ? 'out' : 'in';
+                    touch_zoom_btn.css({background: (touch_zoom=='in') ? 'coral' : 'goldenrod'});
+                    touch_zoom_btn.html((touch_zoom=='in') ? '<center>Zoom In</center>' : '<center>Zoom Out</center>');
+                });
+                touch_state = '';
+            }
 
             // This function is called whenever a map image is returned by Dracones.
             // It performs the positioning computations first on an alternate, hidden moving_anchor/image, and when done,
@@ -327,6 +388,10 @@ var dracones = dracones || (function() {
             map_img.dblclick(doubleClickHandler);
             map_img.mousewheel(pointZoom);
             map_img.bind('mousemove', testHover);          
+            if (is_touch) {
+                map_img.bind('touchstart', clickDownHandler);
+//                map_img.bind('gestureend', pointZoom);
+            }
             map_img.bind('dragstart', function() { return false; }); // prevents img selection in Chrome
 
             // This function is called whenever the map img has finished loading
@@ -360,6 +425,10 @@ var dracones = dracones || (function() {
             map_img2.dblclick(doubleClickHandler);
             map_img2.mousewheel(pointZoom);
             map_img2.bind('mousemove', testHover);          
+            if (is_touch) {
+                map_img2.bind('touchstart', clickDownHandler);                
+//                map_img2.bind('gestureend', pointZoom);
+            }
             map_img2.bind('dragstart', function() { return false; }); // prevents img selection in Chrome
 
             // This function is called whenever the map img has finished loading
@@ -396,6 +465,7 @@ var dracones = dracones || (function() {
             });
             select_box.hide();
             var select_box_init_pos = { x:0, y:0 };
+            var select_box_last_pos = { pageX:0, pageY:0 }; // for touch
 
             if (!config.hasOwnProperty('select_mode')) {
                 config.select_mode = 'reset';
@@ -439,6 +509,7 @@ var dracones = dracones || (function() {
             var pan_locked = false;
             var pan_dir = null;
             var center_viewport = false;
+            var prev_tap_pos = {x:0, y:0};
 
             // transform some list params that can be allowed as strings
             if (typeof config.init_dlayers === 'string') {
@@ -474,19 +545,62 @@ var dracones = dracones || (function() {
 
             /** @private */
             function clickDownHandler(event) {
-                
-                var mev = getMouseEventValues(event);
+
+                event.preventDefault();
+
+                mev = getMouseEventValues(event);
                 if (mev.btn != 'left') return; // only act on left click
 
-                // set double-click listener
-                if (!click_timeout) {
-                    click_timeout = setTimeout(function() {
-                        click_timeout = null;
-                        singleClickHandler(event);
-                    }, click_timeout_delay);
+                if (is_touch) {
+
+                    if (isDoubleTouch(event)) {
+//                        console.log('two separate taps (array of size 2): PASS')
+                        return;
+                    }
+
+                    var t0 = event.originalEvent.touches[0];
+
+                    if (!tap_timeout) {
+
+                        prev_tap_pos = {x: t0.pageX, y: t0.pageY};
+                        tap_timeout = setTimeout(function() {
+                            tap_timeout = null;
+                            if (touch_state != 'dragging') {
+                                singleClickHandler(t0);      
+                            }
+                        }, tap_timeout_delay);
+
+                    } else {
+
+                        if (Math.abs(t0.pageX - prev_tap_pos.x) <= 10 &&
+                            Math.abs(t0.pageY - prev_tap_pos.y) <= 10) {
+//                            console.log('double tap (timeout-detected): ZOOM');
+                            clearTimeout(tap_timeout);
+                            tap_timeout = null;
+                            pointZoom(event, 'double-tap');
+                        } else {
+                            console.log('two separate taps (timeout-detected): PASS');
+                        }
+                        return;
+                    }
+
+                } else {
+
+                    // set double-click listener
+                    if (!click_timeout) {
+                        click_timeout = setTimeout(function() {
+                            click_timeout = null;
+                            singleClickHandler(event);
+                        }, click_timeout_delay);
+                    }                    
+
                 }
 
                 hover.hide();
+
+                if (is_touch) {
+                    event = event.originalEvent.touches[0];
+                } 
 
                 // map nav
 
@@ -495,10 +609,16 @@ var dracones = dracones || (function() {
                     prev_pan_pos = {x:event.pageX, y:event.pageY };
 
                     for (var i = 0; i < 2; i++) {
-                        moving_anchors[i].map_img.unbind('mousemove', testHover);
-                        moving_anchors[i].map_img.bind('mousemove', panMove);
-                        moving_anchors[i].map_img.bind('mouseup', panUp);
-                        moving_anchors[i].map_img.css('cursor', 'move');
+                        if (is_touch) {
+                            moving_anchors[i].map_img.bind('touchmove', panMove);
+                            moving_anchors[i].map_img.bind('touchend', panUp);
+ 
+                        } else {
+                            moving_anchors[i].map_img.unbind('mousemove', testHover);
+                            moving_anchors[i].map_img.bind('mousemove', panMove);
+                            moving_anchors[i].map_img.bind('mouseup', panUp);
+                            moving_anchors[i].map_img.css('cursor', 'move');
+                        }
                     }
 
                 // select or zoom box
@@ -507,13 +627,24 @@ var dracones = dracones || (function() {
 
                     select_box_init_pos = {x: event.pageX, y: event.pageY };
 
-                    select_box.bind('mousemove', selectBoxMove);
-                    select_box.bind('mouseup', selectBoxUp);
+                    if (is_touch) {
+                        select_box.bind('touchmove', selectBoxMove);
+                        select_box.bind('touchend', selectBoxUp);
+                        select_box_last_pos = {pageX: event.pageX, pageY: event.pageY }; 
+                    } else {
+                        select_box.bind('mousemove', selectBoxMove);
+                        select_box.bind('mouseup', selectBoxUp);
+                    }
 
                     for (var i = 0; i < 2; i++) {
-                        moving_anchors[i].map_img.unbind('mousemove', testHover);
-                        moving_anchors[i].map_img.bind('mousemove', selectBoxMove);
-                        moving_anchors[i].map_img.bind('mouseup', selectBoxUp);
+                        if (is_touch) {
+                            moving_anchors[i].map_img.bind('touchmove', selectBoxMove);
+//                            moving_anchors[i].map_img.bind('touchend', selectBoxUp);
+                        } else {
+                            moving_anchors[i].map_img.unbind('mousemove', testHover);
+                            moving_anchors[i].map_img.bind('mousemove', selectBoxMove);
+                            moving_anchors[i].map_img.bind('mouseup', selectBoxUp);
+                        }
                     }
 
                     if (mev.mod == 'ctrl') {
@@ -539,8 +670,17 @@ var dracones = dracones || (function() {
             /** @private */
             function panMove(event) {
 
+                event.preventDefault();
+
                 clearClickTimeout();
+                if (is_touch) {
+                    event = event.originalEvent.touches[0];
+                }
                 var diff = {x: event.pageX - prev_pan_pos.x, y:event.pageY - prev_pan_pos.y};
+//                if (is_touch && (diff.x >= pan_move_threshold || diff.y >= pan_move_threshold)) {
+//                    console.log('pan move threshold exceeded: PASS');
+//                    return;
+//                }
                 prev_pan_pos = {x: event.pageX, y:event.pageY};
                 var ma_pos = getCurrentMovingAnchorPos();
                 getCurrentMovingAnchor().css({'left': ma_pos.x + diff.x, 
@@ -595,11 +735,19 @@ var dracones = dracones || (function() {
 
             /** @private */
             function panUp(event) {
+
+                event.preventDefault();
+
                 for (var i = 0; i < 2; i++) {
-                    moving_anchors[i].map_img.unbind('mousemove', panMove);
-                    moving_anchors[i].map_img.unbind('mouseup', panUp);
-                    moving_anchors[i].map_img.css('cursor', 'default');
-                    moving_anchors[i].map_img.bind('mousemove', testHover);
+                    if (is_touch) {
+                        moving_anchors[i].map_img.unbind('touchmove', panMove);
+                        moving_anchors[i].map_img.unbind('touchend', panUp);                        
+                    } else {
+                        moving_anchors[i].map_img.unbind('mousemove', panMove);
+                        moving_anchors[i].map_img.unbind('mouseup', panUp);
+                        moving_anchors[i].map_img.css('cursor', 'default');
+                        moving_anchors[i].map_img.bind('mousemove', testHover);
+                    }
                 }
             };
 
@@ -623,12 +771,35 @@ var dracones = dracones || (function() {
             
             /** @private */
             function pointZoom(event, delta) {
+
+                if (is_touch) {
+                    var delta_arg = delta;
+                    var scale = event.originalEvent.scale;
+                    if (scale >= 1) {
+                        delta = 1;
+                    } else {
+                        delta = -1;
+                    }
+                    if (delta_arg == 'double-tap') {
+                        event = {pageX: prev_tap_pos.x, pageY: prev_tap_pos.y};
+                    } else {
+                        // map center point for pinch zoom
+                        event = {pageX: Math.round(map_vp_width / 2) + vp_pos.x, pageY: Math.round(map_vp_height / 2) + vp_pos.y}; 
+                    }
+                    touch_state = '';
+                    select_box.hide();
+                } 
+
                 // convert click coords to map coords
                 var ma_pos = getCurrentMovingAnchorPos();
                 var mev = getMouseEventValues(event);
                 // if mousewheel delta is found, override modifier
                 if (typeof delta !== 'undefined') {
-                    mev.mod = delta<0 ? 'shift' : '';
+                    if (is_touch) {
+                        mev.mod = touch_zoom=='in' ? '' : 'shift';
+                    } else {
+                        mev.mod = delta<0 ? 'shift' : '';
+                    }
                 }
                 that.point_zoom_marker.css({
                     left: event.pageX - vp_pos.x - 16,
@@ -645,8 +816,8 @@ var dracones = dracones || (function() {
                         mid: config.mid,
                         mode: mev.mod == 'shift' ? 'out' : 'in',
                         zsize: zsize,
-                        x: event.pageX - vp_pos.x + map_vp_width + (-map_vp_width - ma_pos.x),
-                        y: event.pageY - vp_pos.y + map_vp_height + (-map_vp_height - ma_pos.y)
+                        x: event.pageX - vp_pos.x - ma_pos.x,
+                        y: event.pageY - vp_pos.y - ma_pos.y
                     },
                     success: that.handleSuccess,
                     error: that.handleError
@@ -664,6 +835,9 @@ var dracones = dracones || (function() {
                 if (!config.hasOwnProperty('point_action') || !config.hasOwnProperty('point_action_dlayers')) { return; }
                 var ma_pos = getCurrentMovingAnchorPos();
                 var mev = getMouseEventValues(event);
+//                if (is_touch) {
+//                    event = event.originalEvent.touches[0];
+//                }
                 if (mev.mod != 'ctrl') { return; }
                 that.loading.show();
                 jQuery.ajaxq(ajaxq_name, {
@@ -689,6 +863,13 @@ var dracones = dracones || (function() {
             /** boundaries in viewport coord: {x:left, y:top, w:widgh, h:height}
                 @private */
             function getSelectBoxBoundaries(event) {
+                if (is_touch) {
+                    if (event) {
+                        event = event.originalEvent.touches[0];
+                    } else {
+                        event = select_box_last_pos;
+                    }
+                } 
                 var w = event.pageX - select_box_init_pos.x;
                 var h = event.pageY - select_box_init_pos.y;
                 if (w < 0) {
@@ -712,6 +893,18 @@ var dracones = dracones || (function() {
             function selectBoxMove(event) {
                 clearClickTimeout();
                 var box = getSelectBoxBoundaries(event);
+                if (is_touch) {                    
+                    select_box_last_pos = { pageX: event.originalEvent.touches[0].pageX, 
+                                            pageY: event.originalEvent.touches[0].pageY };
+                    touch_state = 'dragging';
+                    if (touchdrag_timeout) {
+                        clearTimeout(touchdrag_timeout);
+                    }
+                    touchdrag_timeout = setTimeout(function() {
+                        touch_state = '';
+                        selectBoxUp();
+                    }, touchdrag_timeout_delay);
+                }
                 select_box.css({
                     left: box.x - vp_pos.x,
                     top: box.y - vp_pos.y,
@@ -725,13 +918,23 @@ var dracones = dracones || (function() {
             function selectBoxUp(event) {
 
                 for (var i = 0; i < 2; i++) {
-                    moving_anchors[i].map_img.unbind('mousemove', selectBoxMove);
-                    moving_anchors[i].map_img.unbind('mouseup', selectBoxUp);
-                    moving_anchors[i].map_img.bind('mousemove', testHover);
+                    if (is_touch) {
+                        moving_anchors[i].map_img.unbind('touchmove', selectBoxMove);
+                        moving_anchors[i].map_img.unbind('touchend', selectBoxUp);
+                    } else {
+                        moving_anchors[i].map_img.unbind('mousemove', selectBoxMove);
+                        moving_anchors[i].map_img.unbind('mouseup', selectBoxUp);
+                        moving_anchors[i].map_img.bind('mousemove', testHover);
+                    }
                 }
 
-                select_box.unbind('mousemove');
-                select_box.unbind('mouseup');
+                if (is_touch) {
+                    select_box.unbind('touchmove');
+                    select_box.unbind('touchend');
+                } else {
+                    select_box.unbind('mousemove');
+                    select_box.unbind('mouseup');
+                }
 
                 select_box.css({
                     width: 0,
@@ -740,13 +943,22 @@ var dracones = dracones || (function() {
 
                 select_box.hide();
 
+                if (is_touch) {
+                    event = select_box_last_pos;
+                } 
+
                 // false box, considered a click
                 if (Math.abs(select_box_init_pos.x - event.pageX) <= 5 ||
                     Math.abs(select_box_init_pos.y - event.pageY) <= 5) {
                     
                 } else {
                     
-                    var boundaries = getSelectBoxBoundaries(event);
+                    if (is_touch) {
+                        var boundaries = getSelectBoxBoundaries(null);
+                    } else {
+                        var boundaries = getSelectBoxBoundaries(event);
+                    }
+
                     var ma_pos = getCurrentMovingAnchorPos();
                     boundaries.x -= vp_pos.x;
                     boundaries.y -= vp_pos.y;
