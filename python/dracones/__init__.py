@@ -13,5 +13,5 @@ standalone as well.
 @author: Christian Jauvin
 @contact: cjauvin@gmail.com
 @license: See LICENSE.txt
-@version: 1.1.2
+@version: 1.1.3
 """

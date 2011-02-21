@@ -12,7 +12,7 @@
     Dracones module (provides only one instantiable class).
     @namespace 
     @author Christian Jauvin cjauvin[at]gmail[dot]com
-    @version 1.1.2
+    @version 1.1.3
 */
 var dracones = dracones || (function() {
 
