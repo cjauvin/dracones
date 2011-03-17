@@ -6,7 +6,7 @@ MAP
     LAYER
         TEMPLATE tmpl
         NAME "montreal"
-        STATUS off
+        STATUS on
         TYPE line
         DATA "montreal"
         CLASS STYLE COLOR 105 105 105   END END
