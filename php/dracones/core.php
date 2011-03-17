@@ -185,7 +185,6 @@ class DLayer {
         $this->hover_items_in_append_mode = False;
         $this->group = $this->ms_layer->group;
         $this->shape_index = 0;
-        $this->setStatus(MS_ON);
         $this->is_shapefile = False;
         if ($this->ms_layer->data) {
             $this->is_shapefile = !preg_match('/.* * from *.*/i', $this->ms_layer->data);
@@ -999,6 +998,13 @@ class DMap {
         $this->ms_map->zoomPoint(-$this->map_size_rel_to_vp, $p, $this->ms_map->width, $this->ms_map->height, $this->ms_map->extent);
         $this->dlayers = array();
         $this->groups = array();
+        foreach ($this->ms_map->getAllLayerNames() as $name) {
+            $dlayer = createDLayerInstance($name, $this);
+            $this->dlayers[$name] = $dlayer;
+            if ($dlayer->group) {
+                $this->groups[$dlayer->group][] = $name;
+            }
+        }
     }
 
     /*!
@@ -1129,39 +1135,6 @@ class DMap {
     }
 
     /*!
-      Sets a dlayer visible.
-        
-      @param dlayer DLayer to set.
-    */
-    function setDLayer($dlayer) {
-
-        if (!$this->hasDLayer($dlayer->name)) {
-            $this->dlayers[$dlayer->name] = $dlayer;
-            if ($dlayer->group and !in_array($dlayer->name, get($this->groups, $dlayer->group, array()))) {
-                if (!array_key_exists($dlayer->group, $this->groups)) {
-                    $this->groups[$dlayer->group] = array();
-                }
-                $this->groups[$dlayer->group][] = $dlayer->name;
-            }            
-        }
-
-    }
-
-    /*!
-      Sets all the dlayers found in the current session.
-    */
-    function setDLayersFromSession() {
-
-        $sess = &$_SESSION;
-        $hist_idx = $sess[$this->mid]['history_idx'];
-        foreach ($sess[$this->mid]['history'][$hist_idx]['dlayers'] as $dlayer_name => $dlayer_values) {
-            $dlayer = createDLayerInstance($dlayer_name, $this);
-            $this->setDLayer($dlayer);
-        }
-
-    }
-
-    /*!
       Returns a dlayer by name, throws an exception if not found.
 
       @param dlayer_name Name of the requested dlayer.
@@ -1187,11 +1160,11 @@ class DMap {
 
         $sess = &$_SESSION;
         $hist_idx = $sess[$this->mid]['history_idx'];
-        foreach ($this->dlayers as $tl_name => $dlayer) {
-            $dlayer->restoreState(get(get($sess[$this->mid]['history'][$hist_idx]['dlayers'], $tl_name, array()), 'filtered', array()),
-                                  get(get($sess[$this->mid]['history'][$hist_idx]['dlayers'], $tl_name, array()), 'selected', array()),
-                                  get(get($sess[$this->mid]['history'][$hist_idx]['dlayers'], $tl_name, array()), 'features', array()),
-                                  get(get($sess[$this->mid]['history'][$hist_idx]['dlayers'], $tl_name, array()), 'status', MS_ON));
+        foreach ($this->dlayers as $name => $dlayer) {
+            $dlayer->restoreState($sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['filtered'],
+                                  $sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['selected'],
+                                  $sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['features'],
+                                  $sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['status']);
         }
         $xt = $sess[$this->mid]['history'][$hist_idx]['extent'];
         if ($restore_extent && $xt) {

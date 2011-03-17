@@ -51,7 +51,7 @@ function doDracones($registered_services) {
 
 }
 
-doDracones(array('init', 'pan', 'zoom', 'fullExtent', 'action', 'setDLayers', 'clearDLayers',
+doDracones(array('init', 'pan', 'zoom', 'fullExtent', 'action', 'setDLayersStatus', 'clearDLayers',
                  'toggleDLayers', 'export', 'setFeatureVisibility', 'selectFeatures', 'history'));
 
 
@@ -95,7 +95,6 @@ function beginDracones($kw = array()) {
     }
     
     $dmap = new DMap($mid, $use_viewport_geom);
-    $dmap->setDLayersFromSession();
     $dmap->restoreStateFromSession($restore_extent);
     if ($add_features) {
         $dmap->addDLayerFeatures();
@@ -166,7 +165,6 @@ function exitDracones($json_out) {
   @param mvpw HTTP GET param - map viewport width (corresponds to the widget div dimensions; underlying map will be bigger than that, see msvp param).
   @param mvph HTTP GET param - map viewport height (corresponds to the widget div dimensions; underlying map will be bigger than that, see msvp param).
   @param msvp HTTP GET param - map size relative to the viewport (the viewport dims will be multiplied by this value).
-  @param dlayers HTTP GET param - list of dlayers to initialize the map with.
   @param history_size HTTP GET param - number of history cells kept (nb. of times undo will be allowed, in other words).
 */
 function init() {
@@ -182,11 +180,10 @@ function init() {
     $mvpw = (int)get($params, 'mvpw', 0); // map viewport width
     $mvph = (int)get($params, 'mvph', 0); // map viewport height
     $msvp = (int)get($params, 'msvp', 0); // map size relative to viewport
-    $dlayers = $params['dlayers'];
     $history_size = (int)get($params, 'history_size', 0);
 
     if (!$app_name || !$mid || !$map_name || !$mvpw || !$mvph || !$msvp) {
-        die(json_encode(array('success' => False, 'error' => 'missing init variables (app, mid, map, mvpw, mvph, msvp, dlayers)')));
+        die(json_encode(array('success' => False, 'error' => 'missing init variables (app, mid, map, mvpw, mvph, msvp)')));
     }
 
     $sess[$mid] = array('app' => $app_name, 'map' => $map_name, 'mvpw' => $mvpw, 'mvph' => $mvph, 'msvp' => $msvp, 
@@ -201,14 +198,6 @@ function init() {
     }
 
     $dmap = new DMap($mid);
-
-    foreach (array_unique(explode(',', $dlayers)) as $dlayer_name) {
-        $dlayer = createDLayerInstance($dlayer_name, $dmap);
-        $dmap->setDLayer($dlayer);
-    }
-
-    $dmap->restoreStateFromSession();
-    $dmap->addDLayerFeatures();
 
     return exitDracones(endDracones($dmap, array('shift_history_window'=>False)));
             
@@ -339,12 +328,12 @@ function action() {
 
 /*!
   @ingroup web_interface
-  Activate/desactivate dlayers.
+  Set dlayers status on/off.
 
   @param dlayers_on HTTP GET param - list of dlayers to activate.
   @param dlayers_off HTTP GET param - list of dlayers to desactivate.
 */
-function setDLayers() {
+function setDLayersStatus() {
 
     $arr = beginDracones();
     $params = $arr[0]; $dmap = $arr[1];    

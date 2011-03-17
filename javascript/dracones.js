@@ -132,7 +132,6 @@ var dracones = dracones || (function() {
            @param {str} config.anchor_elem The id of the supplied anchor div (must exist).
            @param {str} config.app_name Name of the application.
            @param {str} config.mid Widget/map instance ID, to distinguish among multiple map widgets on the same page.
-           @param {str[]} config.init_dlayers List of DLayers to initialize at startup. (A single string instead of a list is allowed).
            @param {str} [config.point_action] The action to trigger when CTRL + single clicking. For the moment, only "select" and "draw" are defined and meaningful.
            @param {str[]} [config.point_action_dlayers] List of DLayers on which the point action must be performed. (A single string instead of a list is allowed).
            @param {str} [config.box_action] The action to trigger when CTRL + left dragging the mouse (box select). For the moment, only "select" is defined.
@@ -156,7 +155,6 @@ var dracones = dracones || (function() {
                app_name: 'my_app', 
                mid: 'my_app_map_widget_1', 
                map: 'some_map', 
-               init_dlayers: ['circle', 'region'], 
                point_action: 'draw',
                point_action_dlayers: ['circle', 'region'],
                box_action: 'select',
@@ -441,9 +439,6 @@ var dracones = dracones || (function() {
             var center_viewport = false;
 
             // transform some list params that can be allowed as strings
-            if (typeof config.init_dlayers === 'string') {
-                config.init_dlayers = [config.init_dlayers];
-            }
             if (typeof config.point_action_dlayers === 'string') {
                 config.point_action_dlayers = [config.point_action_dlayers];
             }
@@ -855,7 +850,6 @@ var dracones = dracones || (function() {
                         app: config.app_name,
                         mid: config.mid,
                         map: config.map,
-                        dlayers: config.init_dlayers.join(','),
                         mvpw: map_vp_width,
                         mvph: map_vp_height,
                         msvp: config.map_size_rel_to_vp,
@@ -1129,11 +1123,6 @@ var dracones = dracones || (function() {
                 if (typeof args.error !== 'function') {
                     args.error = that.handleError;
                 }
-                // If found, remove first "/" from url, because it would prevent the 
-                // RewriteRule to work correctly (PHP version)
-                if (args.url[0] == '/') {
-                    args.url = args.url.substring(1, args.url.length);
-                }
                 that.loading.show();
                 jQuery.ajaxq(ajaxq_name, {
                     type: 'GET',
@@ -1298,7 +1287,7 @@ var dracones = dracones || (function() {
                 that.loading.show();
                 jQuery.ajaxq(ajaxq_name, {
                     type: 'GET',
-                    url: dracones_url + '/dracones_do/setDLayers',
+                    url: dracones_url + '/dracones_do/setDLayersStatus',
                     dataType: 'json',
                     data: {                        
                         mid: config.mid,

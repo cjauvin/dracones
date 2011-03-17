@@ -133,7 +133,6 @@ class DLayer(object):
         self.hover_items_in_append_mode = False
         self.group = self.ms_layer.group 
         self.shape_index = 0
-        self.setStatus(MS_ON)
         self.is_shapefile = False #: Shapefile or PostGIS source.
         if self.ms_layer.data:
             # search from SQL pattern '* from *...'
@@ -903,6 +902,12 @@ class DMap(mapObj):
         self.zoomPoint(-self.map_size_rel_to_vp, p, self.width, self.height, self.extent, None)
         self.dlayers = {} # 'dlayer_name' -> DLayer object
         self.groups = {} # dlayer group name -> [dlayer names]
+        for i in range(self.numlayers):
+            ms_layer = self.getLayer(i)            
+            dlayer = createDLayerInstance(ms_layer.name, self)
+            self.dlayers[ms_layer.name] = dlayer
+            if dlayer.group:
+                self.groups.setdefault(dlayer.group, []).append(ms_layer.name)
 
 
     def pan(self, dir):
@@ -1034,28 +1039,6 @@ class DMap(mapObj):
         return img_url
 
 
-    def setDLayer(self, dlayer):
-        """
-        Sets a dlayer visible.
-        
-        @type dlayer: str
-        @param dlayer: DLayer to set.
-        """
-        if not self.hasDLayer(dlayer.name):
-            self.dlayers[dlayer.name] = dlayer
-            # if there is a 'group' attibute, create a group with a list of belonging dlayers
-            if dlayer.group and dlayer.name not in self.groups.get(dlayer.group, []):
-                self.groups.setdefault(dlayer.group, []).append(dlayer.name)
-
-    def setDLayersFromSession(self):
-        """
-        Sets all the dlayers found in the current session.
-        """
-        hist_idx = self.sess[self.mid]['history_idx']
-        for dlayer_name in self.sess[self.mid]['history'][hist_idx]['dlayers']:
-            dlayer = createDLayerInstance(dlayer_name, self)
-            self.setDLayer(dlayer)
-
     def getDLayer(self, dlayer_name):
         """
         Returns a dlayer by name, throws an exception if not found.
@@ -1064,6 +1047,7 @@ class DMap(mapObj):
         """
         assert self.hasDLayer(dlayer_name), 'The %s dlayer is not set in the current session/map' % dlayer_name
         return self.dlayers[dlayer_name]
+
 
     def hasDLayer(self, dlayer_name):
         """
@@ -1079,12 +1063,12 @@ class DMap(mapObj):
         @param restore_extent: If False, will stay with map default extent.
         """
         hist_idx = self.sess[self.mid]['history_idx']
-        for tl_name, dlayer in self.dlayers.items():
-                # important here to pass copies (with '[:]') of selected/filtered
-                dlayer.restoreState(self.sess[self.mid]['history'][hist_idx]['dlayers'].get(tl_name, {}).get('filtered', [])[:],
-                                    self.sess[self.mid]['history'][hist_idx]['dlayers'].get(tl_name, {}).get('selected', [])[:],
-                                    self.sess[self.mid]['history'][hist_idx]['dlayers'].get(tl_name, {}).get('features', {}).copy(),
-                                    self.sess[self.mid]['history'][hist_idx]['dlayers'].get(tl_name, {}).get('status', MS_ON))
+        for name, dlayer in self.dlayers.items():
+                # important here to pass copies for compound types
+                dlayer.restoreState(self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['filtered'][:],
+                                    self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['selected'][:],
+                                    self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['features'].copy(),
+                                    self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['status'])
         xt = self.sess[self.mid]['history'][hist_idx]['extent']
         if restore_extent and xt:
             self.setExtent(xt['minx'], xt['miny'], xt['maxx'], xt['maxy'])
