@@ -79,12 +79,12 @@ function beginDracones($kw = array()) {
     $params = $_REQUEST;
     $sess = &$_SESSION;
 
-    $mid = $params['mid'];
-
-    if (!isset($sess[$mid])) {
-        die(json_encode(array('success'=> False, 'error'=> 'session_expired',
-                              'error_msg'=> 'Session has expired')));
+    if (!isset($params['mid'])) {
+        die(json_encode(array('success'=> False, 'error'=> 'missing_mid',
+                              'error_msg'=> "Missing 'mid' param")));
     }
+
+    $mid = $params['mid'];
     
     if ($history_dir == 'undo') {
         assert($sess[$mid]['history_idx'] > 0);
@@ -100,7 +100,7 @@ function beginDracones($kw = array()) {
         $dmap->addDLayerFeatures();
     }
     
-    return array($params, $dmap);
+    return $dmap;
 
 }
 
@@ -118,8 +118,6 @@ function beginDracones($kw = array()) {
 */
 function endDracones($dmap, $kw = array()) {
 
-    $sess = &$_SESSION;
-
     $shift_history_window = get($kw, 'shift_history_window', True);
     $update_session = get($kw, 'update_session', True);
 
@@ -131,9 +129,9 @@ function endDracones($dmap, $kw = array()) {
     if ($update_session) {
         $dmap->saveStateInSession($shift_history_window);
     }
-    $json_out['can_undo'] = $sess[$dmap->mid]['history_idx'] > 0 && (!in_array('init', $sess[$dmap->mid]['history'][$sess[$dmap->mid]['history_idx']-1]));
-    $json_out['can_redo'] = $sess[$dmap->mid]['history_idx'] < ($sess[$dmap->mid]['history_size'] - 1);
-    $json_out['history_idx'] = $sess[$dmap->mid]['history_idx'];
+    $json_out['can_undo'] = $dmap->sess_mid['history_idx'] > 0 && (!in_array('init', $dmap->sess_mid['history'][$dmap->sess_mid['history_idx']-1]));
+    $json_out['can_redo'] = $dmap->sess_mid['history_idx'] < ($dmap->sess_mid['history_size'] - 1);
+    $json_out['history_idx'] = $dmap->sess_mid['history_idx'];
     $json_out['shift_history_window'] = $update_session ? $shift_history_window : False;
     return $json_out;
 
@@ -158,10 +156,10 @@ function exitDracones($json_out) {
 
 /*!
   @ingroup web_interface
-  Mandatory first client call: sets up the session object, with all the required parameters.
+  Mandatory first client call: set up the session object, with all the required parameters and return a unique id for this map widget (mid).
 
-  @param app_name HTTP GET param - name of the application.
-  @param mid HTTP GET param - map widget instance; useful if more than one widgets for the same app.
+  @param app HTTP GET param - name of the application.
+  @param map HTTP GET param - MS mapfile
   @param mvpw HTTP GET param - map viewport width (corresponds to the widget div dimensions; underlying map will be bigger than that, see msvp param).
   @param mvph HTTP GET param - map viewport height (corresponds to the widget div dimensions; underlying map will be bigger than that, see msvp param).
   @param msvp HTTP GET param - map size relative to the viewport (the viewport dims will be multiplied by this value).
@@ -170,36 +168,36 @@ function exitDracones($json_out) {
 function init() {
 
     $params = $_REQUEST;
-    $sess = &$_SESSION;
     $json_out = array('success' => True);
 
     // init params
-    $app_name = get($params, 'app', null);
-    $mid = get($params, 'mid', null);
+    $app = get($params, 'app', null);
     $map_name = get($params, 'map', null);
     $mvpw = (int)get($params, 'mvpw', 0); // map viewport width
     $mvph = (int)get($params, 'mvph', 0); // map viewport height
     $msvp = (int)get($params, 'msvp', 0); // map size relative to viewport
     $history_size = (int)get($params, 'history_size', 0);
 
-    if (!$app_name || !$mid || !$map_name || !$mvpw || !$mvph || !$msvp) {
-        die(json_encode(array('success' => False, 'error' => 'missing init variables (app, mid, map, mvpw, mvph, msvp)')));
+    if (!$app || !$map_name || !$mvpw || !$mvph || !$msvp) {
+        die(json_encode(array('success' => False, 'error' => 'missing init variables (app, map, mvpw, mvph, msvp)')));
     }
 
-    $sess[$mid] = array('app' => $app_name, 'map' => $map_name, 'mvpw' => $mvpw, 'mvph' => $mvph, 'msvp' => $msvp, 
-                        'history_size' => $history_size, 'history' => array(), 'history_idx' => ($history_size - 1) );
+    $mid = uniqid();
+    $_SESSION[$mid] = array('app' => $app, 'map' => $map_name, 'mvpw' => $mvpw, 'mvph' => $mvph, 'msvp' => $msvp, 
+                            'history_size' => $history_size, 'history' => array(), 'history_idx' => ($history_size - 1) );
 
     for ($i = 0; $i < $history_size; $i++) {
         $hist_cell = newHistoryCell();
         if ($i < ($history_size - 1)) {
             $hist_cell['init'] = True; // special markers to make it impossible to go back to these 
         }
-        $sess[$mid]['history'][] = $hist_cell;
+        $_SESSION[$mid]['history'][] = $hist_cell;
     }
 
     $dmap = new DMap($mid);
-
-    return exitDracones(endDracones($dmap, array('shift_history_window'=>False)));
+    $json_out = endDracones($dmap, array('shift_history_window'=>False));
+    $json_out['mid'] = $mid;
+    return exitDracones($json_out);
             
 }
 
@@ -209,8 +207,7 @@ function init() {
 */
 function fullExtent() {
 
-    $arr = beginDracones(array('restore_extent' => False));
-    $params = $arr[0]; $dmap = $arr[1];
+    $dmap = beginDracones(array('restore_extent' => False));
     return exitDracones(endDracones($dmap));
 
 }
@@ -223,8 +220,8 @@ function fullExtent() {
 */
 function pan() {    
 
-    $arr = beginDracones();
-    $params = $arr[0]; $dmap = $arr[1];
+    $params = $_REQUEST;
+    $dmap = beginDracones();
     $pan_dir = $params['dir'];
     $dmap->pan($pan_dir);
     $json_out = endDracones($dmap, array('shift_history_window' => True));
@@ -246,18 +243,15 @@ function pan() {
 */
 function zoom() {
 
-    $arr = beginDracones();
-    $params = $arr[0]; $dmap = $arr[1];
-
+    $params = $_REQUEST;
+    $dmap = beginDracones();
     $x = (int)$params['x'];
     $y = (int)$params['y'];
     $w = (int)get($params, 'w', 0);
     $h = (int)get($params, 'h', 0);
     $mode = get($params, 'mode', null);
     $zsize = (int)get($params, 'zsize', 2);
-
     $dmap->zoom($x, $y, $w, $h, $mode, $zsize);
-
     return exitDracones(endDracones($dmap));    
 
 }
@@ -284,8 +278,8 @@ function zoom() {
 */
 function action() {
    
-    $arr = beginDracones(array('add_features' => False));
-    $params = $arr[0]; $dmap = $arr[1];
+    $params = $_REQUEST;
+    $dmap = beginDracones(array('add_features' => False));
 
     $x = (int)$params['x'];
     $y = (int)$params['y'];
@@ -335,8 +329,8 @@ function action() {
 */
 function setDLayersStatus() {
 
-    $arr = beginDracones();
-    $params = $arr[0]; $dmap = $arr[1];    
+    $params = $_REQUEST;
+    $dmap = beginDracones();
 
     $dlayers_on = get($params, 'dlayers_on', Null);
     $dlayers_off = get($params, 'dlayers_off', Null);
@@ -368,8 +362,8 @@ function setDLayersStatus() {
 */
 function clearDLayers() {
 
-    $arr = beginDracones(array('add_features' => False));
-    $params = $arr[0]; $dmap = $arr[1];    
+    $params = $_REQUEST;
+    $dmap = beginDracones(array('add_features' => False));
 
     $what = $params['what'];
     $dlayers_to_clear = get($params, 'dlayers', Null);
@@ -391,8 +385,8 @@ function clearDLayers() {
 */
 function toggleDLayers() {
 
-    $arr = beginDracones();
-    $params = $arr[0]; $dmap = $arr[1];    
+    $params = $_REQUEST;
+    $dmap = beginDracones();
 
     $dlayers_to_toggle = get($params, 'dlayers', Null);
 
@@ -419,22 +413,20 @@ function export() {
 
     global $dconf;
 
-    $arr = beginDracones(array('use_viewport_geom' => True));
-    $params = $arr[0]; $dmap = $arr[1];
-
-    $sess = &$_SESSION;
+    $params = $_REQUEST;
+    $dmap = beginDracones(array('use_viewport_geom' => True));
 
     // input params
     $vptx = get($params, 'vptx', 0);
     $vpty = get($params, 'vpty', 0);
 
-    $hist_idx = $sess[$dmap->mid]['history_idx'];
-    $xt = $sess[$dmap->mid]['history'][$hist_idx]['extent'];
+    $hist_idx = $dmap->sess_mid['history_idx'];
+    $xt = $dmap->sess_mid['history'][$hist_idx]['extent'];
 
     // First adjust temp extent to match vp size map
-    $xvp = ($xt['maxx'] - $xt['minx']) / $sess[$dmap->mid]['msvp'];
-    $yvp = ($xt['maxy'] - $xt['miny']) / $sess[$dmap->mid]['msvp'];
-    $hnvp = ($sess[$dmap->mid]['msvp'] - 1) / 2; // half n viewports
+    $xvp = ($xt['maxx'] - $xt['minx']) / $dmap->sess_mid['msvp'];
+    $yvp = ($xt['maxy'] - $xt['miny']) / $dmap->sess_mid['msvp'];
+    $hnvp = ($dmap->sess_mid['msvp'] - 1) / 2; // half n viewports
     $xt['minx'] += ($hnvp * $xvp);
     $xt['maxx'] = $xt['minx'] + $xvp;
     $xt['miny'] += ($hnvp * $yvp);
@@ -454,11 +446,11 @@ function export() {
     $img = $dmap->ms_map->draw();
     $img->imagepath = $dconf['ms_tmp_path'];
     // image filename structure: <mapname>_<mid>_<session_id>_EXPORT.<img_type>
-    $fn = sprintf("%s_%s_%s_%s.%s", $sess[$dmap->mid]['map'], $dmap->mid, session_id(), "EXPORT", $dmap->ms_map->imagetype);
+    $fn = sprintf("%s_%s_%s_%s.%s", $dmap->sess_mid['map'], $dmap->app, session_id(), "EXPORT", $dmap->ms_map->imagetype);
     $img_path = sprintf("%s%s%s", $dconf['ms_tmp_path'], ($dconf['ms_tmp_path'][strlen($dconf['ms_tmp_path'])-1] == '/' ? '' : '/'), $fn);
     $img->saveImage($img_path);
 
-    $external_fn = sprintf("%s_%s.%s", $dmap->app_name, strftime('%Y-%m-%d_%Hh%Mm%Ss'), $dmap->ms_map->imagetype);
+    $external_fn = sprintf("%s_%s.%s", $dmap->app, strftime('%Y-%m-%d_%Hh%Mm%Ss'), $dmap->ms_map->imagetype);
 
     header("Content-Type: application/octet-stream");
     header(sprintf('Content-Disposition: attachment; filename="%s"', $external_fn));
@@ -479,8 +471,8 @@ function export() {
 */
 function setFeatureVisibility() {
 
-    $arr = beginDracones(array('add_features' => False));
-    $params = $arr[0]; $dmap = $arr[1];    
+    $params = $_REQUEST;
+    $dmap = beginDracones(array('add_features' => False));
 
     $dlayer_name = get($params, 'dlayer');
     $features = explode(',', get($params, 'features', ''));
@@ -509,8 +501,8 @@ function setFeatureVisibility() {
 */
 function selectFeatures() {
 
-    $arr = beginDracones(array('add_features' => False));
-    $params = $arr[0]; $dmap = $arr[1];    
+    $params = $_REQUEST;
+    $dmap = beginDracones(array('add_features' => False));
 
     $dlayer_name = get($params, 'dlayer');   
     $features = explode(',', get($params, 'features', ''));
@@ -533,9 +525,9 @@ function selectFeatures() {
 */
 function history() {
 
-    $direction = $_REQUEST['dir'];
-    $arr = beginDracones(array('history_dir' => $direction));
-    return exitDracones(endDracones($arr[1], array('update_session' => False)));
+    $params = $_REQUEST;
+    $dmap = beginDracones(array('history_dir' => $params['dir']));
+    return exitDracones(endDracones($dmap, array('update_session' => False)));
 
 }
 

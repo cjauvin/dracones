@@ -2,5 +2,6 @@
   "ms_tmp_path": "/ms4w/tmp/ms_tmp/",
   "session_path": "/ms4w/tmp/pesto_tmp/",
   "ms_tmp_url": "/ms_tmp",
-  "app_conf_filepaths": ["/home/christian/repos/github/dracones_doc/conf.json"]
+  "app_conf_filepaths": ["/home/christian/repos/github/dracones_doc/conf.json",
+                         "/home/christian/repos/github/dracones/test_app/conf.json"]
 }

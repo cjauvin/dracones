@@ -27,7 +27,7 @@ def foo(req):
     return exitDracones(json_out)
 """
 
-import copy, time, traceback
+import copy, time, traceback, uuid
 from dracones.core import *
 from pesto import *
 from pesto.session.filesessionmanager import *
@@ -56,6 +56,10 @@ def catchDraconesErrors(f):
                 return Response(content=[json.dumps({'success': False, 'error': 'session_expired',
                                                      'error_msg': 'Session has expired'})],
                                 content_type='application/json')            
+            elif exc.args and exc.args[0] == 'missing_mid':
+                return Response(content=[json.dumps({'success': False, 'error': 'missing_mid',
+                                                     'error_msg': "Missing 'mid' param"})],
+                                content_type='application/json')
             tb = traceback.format_exc()
             tb = tb.replace('\n', '<br>')
             return Response(content=[json.dumps({'success':False, 'traceback': tb})],
@@ -89,10 +93,11 @@ def beginDracones(req, **kw):
     params = req.form
     sess = req.session
 
-    if sess.is_new or 'mid' not in params:
+    if sess.is_new:
         raise Exception('session_expired')
+    elif 'mid' not in params:
+        raise Exception('missing_mid')
 
-    # mandatory param
     mid = params['mid']
 
     if history_dir == 'undo':
@@ -107,7 +112,7 @@ def beginDracones(req, **kw):
     if add_features:
         dmap.addDLayerFeatures()
 
-    return (params, sess, dmap)
+    return dmap
 
 def endDracones(dmap, **kw):
     """
@@ -136,9 +141,10 @@ def endDracones(dmap, **kw):
     if update_session:
         dmap.saveStateInSession(shift_history_window)
     dmap.sess.save()
-    json_out['can_undo'] = dmap.sess[dmap.mid]['history_idx'] > 0 and ('init' not in dmap.sess[dmap.mid]['history'][dmap.sess[dmap.mid]['history_idx']-1])
-    json_out['can_redo'] = dmap.sess[dmap.mid]['history_idx'] < (dmap.sess[dmap.mid]['history_size'] - 1)
-    json_out['history_idx'] = dmap.sess[dmap.mid]['history_idx']
+
+    json_out['can_undo'] = dmap.sess_mid['history_idx'] > 0 and ('init' not in dmap.sess_mid['history'][dmap.sess_mid['history_idx']-1])
+    json_out['can_redo'] = dmap.sess_mid['history_idx'] < (dmap.sess_mid['history_size'] - 1)
+    json_out['history_idx'] = dmap.sess_mid['history_idx']
     json_out['shift_history_window'] = shift_history_window if update_session else False
     return json_out
 
@@ -160,13 +166,13 @@ def exitDracones(json_out):
 @catchDraconesErrors
 def init(req):
     """
-    Mandatory first client call: sets up the session object, with all the required parameters.
+    Mandatory first client call: set up the session object, with all the required parameters and return a unique id for this map widget (mid).
 
     @param req: Pesto request object.
-    @type app_name: str
-    @param app_name: HTTP GET param - name of the application.
-    @type mid: str
-    @param mid: HTTP GET param - map widget instance; useful if more than one widgets for the same app.
+    @type app: str
+    @param app: HTTP GET param - name of the application.
+    @type map: str
+    @param map: HTTP GET param - MS mapfile.
     @type mvpw: int
     @param mvpw: HTTP GET param - map viewport width (corresponds to the widget div dimensions; underlying map will be bigger than that, see msvp param).
     @type mvph: int
@@ -181,19 +187,19 @@ def init(req):
     json_out = { 'success' : True }
 
     # init params
-    app_name = params.get('app', None)
-    mid = params.get('mid', None)
+    app = params.get('app', None)
     map_name = params.get('map', None)
     mvpw = int(params.get('mvpw', 0)) # map viewport width
     mvph = int(params.get('mvph', 0)) # map viewport height
     msvp = int(params.get('msvp', 0)) # map size relative to viewport
     history_size = int(params.get('history_size', 1))
 
-    if not app_name or not mid or not map_name or not mvpw or not mvph or not msvp:
+    if not app or not map_name or not mvpw or not mvph or not msvp:
          return Response(content_type='application/json',
-                         content=[json.dumps({'success' : False, 'error' : 'missing init variables (app, mid, map, mvpw, mvph, msvp)'})])
+                         content=[json.dumps({'success' : False, 'error' : 'missing init variables (app, map, mvpw, mvph, msvp)'})])
 
-    sess[mid] = { 'app' : app_name, 'map' : map_name, 'mvpw' : mvpw, 'mvph' : mvph, 'msvp': msvp, 'history_size' : history_size, 'history' : [], 'history_idx' : (history_size - 1) }
+    mid = str(uuid.uuid4())
+    sess[mid] = {'app': app, 'map' : map_name, 'mvpw' : mvpw, 'mvph' : mvph, 'msvp': msvp, 'history_size' : history_size, 'history' : [], 'history_idx' : (history_size - 1) }
 
     for i in range(history_size):
         hist_cell = newHistoryCell()
@@ -201,8 +207,9 @@ def init(req):
         sess[mid]['history'].append(hist_cell)
 
     dmap = DMap(sess, mid)
-
-    return exitDracones(endDracones(dmap, shift_history_window=False))
+    json_out = endDracones(dmap, shift_history_window=False)
+    json_out['mid'] = mid
+    return exitDracones(json_out)
 
 
 @dispatcher.match('/fullExtent', 'GET')
@@ -213,7 +220,7 @@ def fullExtent(req):
 
     @param req: Pesto request object.
     """
-    params, sess, dmap = beginDracones(req, restore_extent=False)
+    dmap = beginDracones(req, restore_extent=False)
     return exitDracones(endDracones(dmap))
 
 
@@ -227,7 +234,8 @@ def pan(req):
     @type pan_dir: 'right' | 'left' | 'up' | 'down'
     @param pan_dir: HTTP GET param - the direction in which to pan the map.
     """
-    params, sess, dmap = beginDracones(req)            
+    dmap = beginDracones(req)            
+    params = req.form
     pan_dir = params['dir']
     dmap.pan(pan_dir)
     json_out = endDracones(dmap, shift_history_window=True) # Not sure if pan steps should be recorded as history items..
@@ -255,9 +263,10 @@ def zoom(req):
     @type zsize: int
     @param zsize: HTTP GET param - zoom size.
     """
-    params, sess, dmap = beginDracones(req)
+    dmap = beginDracones(req)
 
     # input params
+    params = req.form
     x = int(params.get('x'))        
     y = int(params.get('y'))
     w = int(params.get('w', 0)) # if these are zero: point zoom
@@ -301,11 +310,12 @@ def action(req):
     @type dlayers: str (items joined by commas)
     @param dlayers: HTTP GET param - list of dlayers on which to perform the action.
     """
-    params, sess, dmap = beginDracones(req, add_features=False) # dont add features, because we may need to clear the
+    dmap = beginDracones(req, add_features=False) # dont add features, because we may need to clear the
 
     json_out = {'success': True}                                
 
     # input params
+    params = req.form
     x = int(params.get('x', 0))
     y = int(params.get('y', 0))
     w = int(params.get('w', 0))
@@ -350,8 +360,9 @@ def setDLayersStatus(req):
     @type dlayers_off: str (items joined by commas)
     @param dlayers_off: HTTP GET param - list of dlayers to desactivate.
     """
-    params, sess, dmap = beginDracones(req)
+    dmap = beginDracones(req)
 
+    params = req.form
     dlayers_on = params.get('dlayers_on', None)
     dlayers_off = params.get('dlayers_off', None)
 
@@ -379,8 +390,9 @@ def clearDLayers(req):
     @type dlayers: str (items joined by commas)
     @param dlayers: HTTP GET param - list of dlayers on which to apply the clear.
     """
-    params, sess, dmap = beginDracones(req, add_features=False) # dont add features yet
+    dmap = beginDracones(req, add_features=False) # dont add features yet
 
+    params = req.form
     what = params.get('what')
     dlayers_to_clear = params.get('dlayers', None)
 
@@ -400,8 +412,9 @@ def toggleDLayers(req):
     @type dlayers: str (items joined by commas)
     @param dlayers: HTTP GET param - list of dlayers to toggle.
     """
-    params, sess, dmap = beginDracones(req)
+    dmap = beginDracones(req)
 
+    params = req.form
     if params.get('dlayers', None): dlayers_to_toggle = list(set(params.get('dlayers').split(",")))
     else: dlayers_to_toggle = []
 
@@ -427,19 +440,20 @@ def export(req):
     @type vpty: int
     @param vpty: HTTP GET param - viewport vertical translation, in map/pixel coords.
     """
-    params, sess, dmap = beginDracones(req, use_viewport_geom=True) 
+    dmap = beginDracones(req, use_viewport_geom=True) 
 
     # input params
+    params = req.form
     vptx = int(params.get('vptx', 0))
     vpty = int(params.get('vpty', 0))
 
-    hist_idx = sess[dmap.mid]['history_idx']
-    xt = sess[dmap.mid]['history'][hist_idx]['extent'].copy()
+    hist_idx = dmap.sess_mid['history_idx']
+    xt = dmap.sess_mid['history'][hist_idx]['extent'].copy()
 
     # First adjust temp extent to match vp size map
-    xvp = (xt['maxx'] - xt['minx']) / sess[dmap.mid]['msvp']
-    yvp = (xt['maxy'] - xt['miny']) / sess[dmap.mid]['msvp']
-    hnvp = (sess[dmap.mid]['msvp'] - 1) / 2 # half n viewports
+    xvp = (xt['maxx'] - xt['minx']) / dmap.sess_mid['msvp']
+    yvp = (xt['maxy'] - xt['miny']) / dmap.sess_mid['msvp']
+    hnvp = (dmap.sess_mid['msvp'] - 1) / 2 # half n viewports
     xt['minx'] += (hnvp * xvp)
     xt['maxx'] = xt['minx'] + xvp
     xt['miny'] += (hnvp * yvp)
@@ -459,11 +473,11 @@ def export(req):
     img = dmap.draw()
     img.imagepath = os.path.abspath(dconf['ms_tmp_path'])
     # image filename structure: <mapname>_<mid>_<session_id>_EXPORT.<img_type>
-    fn = "%s_%s_%s_%s.%s" % (sess[dmap.mid]['map'], dmap.mid, sess.session_id, "EXPORT", dmap.imagetype)
+    fn = "%s_%s_%s_%s.%s" % (dmap.sess_mid['map'], dmap.app, dmap.sess.session_id, "EXPORT", dmap.imagetype)
     img.save("%s/%s" % (os.path.abspath(dconf['ms_tmp_path']), fn))
 
     return serve_static_file(req, '%s/%s' % (os.path.abspath(dconf['ms_tmp_path']), fn)).add_headers(
-        content_disposition='attachment; filename=%s_%s.%s' % (dmap.app_name, time.strftime('%Y-%m-%d_%Hh%Mm%Ss'), dmap.imagetype))
+        content_disposition='attachment; filename=%s_%s.%s' % (dmap.app, time.strftime('%Y-%m-%d_%Hh%Mm%Ss'), dmap.imagetype))
 
 
 @dispatcher.match('/setFeatureVisibility', 'GET')
@@ -482,9 +496,10 @@ def setFeatureVisibility(req):
     @type is_visible: B{str} ('true' | 'false')
     @param is_visible: HTTP GET param - feature visibility status.
     """
-    params, sess, dmap = beginDracones(req, add_features=False) 
+    dmap = beginDracones(req, add_features=False) 
 
     # input params
+    params = req.form
     dlayer_name = params.get('dlayer')
     if params.get('features', None): features = list(set(params.get('features', None).split(",")))
     else: features = []
@@ -516,9 +531,10 @@ def selectFeatures(req):
     @param select_mode: HTTP GET param - how selection is to be performed on a DLayer: "reset" (default) will unselect all features before selecting new ones, 
                                          "toggle" will toggle the selected state of the target items, and "add" will not unselect nor toggle anything before selecting new features.
     """
-    params, sess, dmap = beginDracones(req, add_features=False) 
+    dmap = beginDracones(req, add_features=False) 
 
     # input params
+    params = req.form
     dlayer_name = params.get('dlayer')
     if params.get('features', None): features = list(set(params.get('features', None).split(",")))
     else: features = []
@@ -543,6 +559,6 @@ def history(req):
     """
 
     direction = req.form.get('dir', None)
-    params, sess, dmap = beginDracones(req, history_dir=direction)     
+    dmap = beginDracones(req, history_dir=direction)     
     return exitDracones(endDracones(dmap, update_session=False))
 

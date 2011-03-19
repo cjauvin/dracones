@@ -19,6 +19,7 @@
   <p>If you can see and interact with a map below, Dracones is working!</p>
 
   <div id="anchor_div" style="border: 1px solid black; width: 500px; height: 400px"></div>
+  <div id="anchor_div2" style="border: 1px solid black; width: 500px; height: 400px"></div>
 
 </body>
 
@@ -26,12 +27,22 @@
 
 jQuery(document).ready(function() {
 
+    dracones.init('dracones_test_app');
+
     var map = new dracones.MapWidget({
         anchor_elem: 'anchor_div', 
         app_name: 'dracones_test_app', 
         mid: 'instance1', 
         map: 'dracones_test_app'
     });
+
+    var map = new dracones.MapWidget({
+        anchor_elem: 'anchor_div2', 
+//        app_name: 'dracones_test_app', 
+//        mid: 'instance2', 
+        map: 'dracones_test_app'
+    });
+
 });
 
 </script>

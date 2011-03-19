@@ -130,8 +130,7 @@ var dracones = dracones || (function() {
            @constructor
            @param {obj} config An object containing the parameters.
            @param {str} config.anchor_elem The id of the supplied anchor div (must exist).
-           @param {str} config.app_name Name of the application.
-           @param {str} config.mid Widget/map instance ID, to distinguish among multiple map widgets on the same page.
+           @param {str} config.app_name The name of the app (must match corresponding field in conf.json).
            @param {str} [config.point_action] The action to trigger when CTRL + single clicking. For the moment, only "select" and "draw" are defined and meaningful.
            @param {str[]} [config.point_action_dlayers] List of DLayers on which the point action must be performed. (A single string instead of a list is allowed).
            @param {str} [config.box_action] The action to trigger when CTRL + left dragging the mouse (box select). For the moment, only "select" is defined.
@@ -152,8 +151,7 @@ var dracones = dracones || (function() {
            @example
            var mw = new dracones.MapWidget({
                anchor_elem: 'map_widget_anchor_div', 
-               app_name: 'my_app', 
-               mid: 'my_app_map_widget_1', 
+               app_name: 'some_app',
                map: 'some_map', 
                point_action: 'draw',
                point_action_dlayers: ['circle', 'region'],
@@ -847,8 +845,7 @@ var dracones = dracones || (function() {
                     url: dracones_url + '/dracones_do/init',
                     dataType: 'json',
                     data: {
-                        app: config.app_name,
-                        mid: config.mid,
+                        app: config.app_name, // only ajax call where it is necessary
                         map: config.map,
                         mvpw: map_vp_width,
                         mvph: map_vp_height,
@@ -893,6 +890,11 @@ var dracones = dracones || (function() {
                 setTimeout(function() {
                     that.point_zoom_marker.hide();
                 }, 250);
+
+                // retrieve map widget unique id from init
+                if (resp.hasOwnProperty('mid')) {
+                    config.mid = resp.mid;
+                }
                 
                 // map positioning (pan, etc.)
                 pan_dir = null;
@@ -1101,17 +1103,16 @@ var dracones = dracones || (function() {
  
                 @param {obj} args An object containing the function parameters as properties.            
                 @param {str} args.url The URL of the Python script + function.
-                @param {obj} [args.data] The data/parameters to be sent to the script (if the MID is not present, it will be added).
+                @param {obj} [args.data] The data/parameters to be sent to the script (if the mid and app args are not present, they will be added).
                 @param {function} [args.callback] Callback triggered at success completion (it is passed the JSON response from the server).
                 @param {function} [args.success] Success replacement callback (you will need to manually handleSuccess though).
                 @param {function} [args.error] Error replacement callback (you will need to manually handleSuccess though).
              */
             this.customRequest = function(args) { 
                 if (!args.hasOwnProperty('data')) {
-                    args.data = {mid: config.mid};
-                } else if (!args.data.hasOwnProperty('mid')) {
-                    args.data.mid = config.mid;
+                    args.data = {}
                 }
+                args.data.mid = config.mid;
                 if (typeof args.success !== 'function') {
                     args.success = function(r) {
                         that.handleSuccess(r);

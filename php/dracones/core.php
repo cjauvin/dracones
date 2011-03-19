@@ -588,7 +588,7 @@ class DLayer {
     */
     function saveStateInSession() {
 
-        $hd = &$_SESSION[$this->dmap->mid]['history'][count($_SESSION[$this->dmap->mid]['history'])-1]['dlayers'];
+        $hd = &$this->dmap->sess_mid['history'][count($this->dmap->sess_mid['history'])-1]['dlayers'];
         if (!isset($hd[$this->name])) {
             $hd[$this->name] = array();
         }
@@ -966,12 +966,14 @@ class LineDLayer extends DLayer {
 */
 class DMap { 
 
+    public $app;
     public $mid;
     public $app_name;
     public $ms_map; // this is a big difference with the Python version: since DMap cannot inherit from MapObj, 
     public $map_size_rel_to_vp; // it has to hold a pointer to its object
     public $dlayers;
     public $groups;
+    public $sess;
 
     /*!
       DMap constructor.
@@ -982,19 +984,19 @@ class DMap {
     function __construct($mid, $use_viewport_geom = False) {
 
         global $dconf;
-        $sess = &$_SESSION;
         $this->mid = $mid;
-        $this->app_name = $sess[$mid]['app'];
-        $map_file = sprintf('%s/%s.map', $dconf[$this->app_name]['mapfile_path'], $sess[$mid]['map']);
+        $this->sess_mid = &$_SESSION[$mid];
+        $this->app = $this->sess_mid['app'];
+        $map_file = sprintf('%s/%s.map', $dconf[$this->app]['mapfile_path'], $this->sess_mid['map']);
         $this->ms_map = ms_newMapObj($map_file);
         if ($use_viewport_geom) {
             $this->map_size_rel_to_vp = 1;
         } else {
-            $this->map_size_rel_to_vp = $sess[$mid]['msvp'];
+            $this->map_size_rel_to_vp = $this->sess_mid['msvp'];
         }
         $p = ms_newPointObj();
-        $p->setXY($this->map_size_rel_to_vp * $sess[$mid]['mvpw'] / 2, $this->map_size_rel_to_vp * $sess[$mid]['mvph'] / 2);
-        $this->ms_map->setSize($this->map_size_rel_to_vp * $sess[$mid]['mvpw'], $this->map_size_rel_to_vp * $sess[$mid]['mvph']);
+        $p->setXY($this->map_size_rel_to_vp * $this->sess_mid['mvpw'] / 2, $this->map_size_rel_to_vp * $this->sess_mid['mvph'] / 2);
+        $this->ms_map->setSize($this->map_size_rel_to_vp * $this->sess_mid['mvpw'], $this->map_size_rel_to_vp * $this->sess_mid['mvph']);
         $this->ms_map->zoomPoint(-$this->map_size_rel_to_vp, $p, $this->ms_map->width, $this->ms_map->height, $this->ms_map->extent);
         $this->dlayers = array();
         $this->groups = array();
@@ -1125,9 +1127,9 @@ class DMap {
     function getImageURL() {
 
         global $dconf;
-        $sess = &$_SESSION;
         $img = $this->ms_map->draw();
-        $fn = sprintf("%s_%s_%s.%s", $sess[$this->mid]['map'], $this->mid, session_id(), $this->ms_map->imagetype);
+        // app_mid_map_sessionid.imgtype
+        $fn = sprintf("%s_%s_%s_%s.%s", $this->app, $this->mid, $this->sess_mid['map'], session_id(), $this->ms_map->imagetype);
         $img_url = sprintf("%s%s%s", $dconf['ms_tmp_url'], ($dconf['ms_tmp_url'][strlen($dconf['ms_tmp_url'])-1] == '/' ? '' : '/'), $fn);
         $img_path = sprintf("%s%s%s", $dconf['ms_tmp_path'], ($dconf['ms_tmp_path'][strlen($dconf['ms_tmp_path'])-1] == '/' ? '' : '/'), $fn);
         $img->saveImage($img_path);
@@ -1158,15 +1160,14 @@ class DMap {
     */
     function restoreStateFromSession($restore_extent = True) {
 
-        $sess = &$_SESSION;
-        $hist_idx = $sess[$this->mid]['history_idx'];
+        $hist_idx = $this->sess_mid['history_idx'];
         foreach ($this->dlayers as $name => $dlayer) {
-            $dlayer->restoreState($sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['filtered'],
-                                  $sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['selected'],
-                                  $sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['features'],
-                                  $sess[$this->mid]['history'][$hist_idx]['dlayers'][$name]['status']);
+            $dlayer->restoreState($this->sess_mid['history'][$hist_idx]['dlayers'][$name]['filtered'],
+                                  $this->sess_mid['history'][$hist_idx]['dlayers'][$name]['selected'],
+                                  $this->sess_mid['history'][$hist_idx]['dlayers'][$name]['features'],
+                                  $this->sess_mid['history'][$hist_idx]['dlayers'][$name]['status']);
         }
-        $xt = $sess[$this->mid]['history'][$hist_idx]['extent'];
+        $xt = $this->sess_mid['history'][$hist_idx]['extent'];
         if ($restore_extent && $xt) {
             $this->ms_map->setExtent($xt['minx'], $xt['miny'], $xt['maxx'], $xt['maxy']);
         }
@@ -1180,8 +1181,7 @@ class DMap {
     */
     function saveStateInSession($shift_history_window = True) {
 
-        $sess = &$_SESSION;
-        $hist_size = $sess[$this->mid]['history_size'];
+        $hist_size = $this->sess_mid['history_size'];
 
         if ($shift_history_window) {
 
@@ -1197,41 +1197,41 @@ class DMap {
                Note that we must use a special "init" padding for the first element (_), to prevent going back to it.
                The same mechanism is also used in the client module (for hover items history) 
             */
-            $hist_idx = $sess[$this->mid]['history_idx'];
+            $hist_idx = $this->sess_mid['history_idx'];
             if ($hist_idx != ($hist_size - 1)) {
-                $prev_hist_cell = array_deep_copy($sess[$this->mid]['history'][$hist_idx]);
+                $prev_hist_cell = array_deep_copy($this->sess_mid['history'][$hist_idx]);
                 // shift subset of history (0 to history_idx) to the far right (minus 1)
-                $hist_copy = array_deep_copy($sess[$this->mid]['history']);
+                $hist_copy = array_deep_copy($this->sess_mid['history']);
                 for ($i = 0; $i <= $hist_idx; $i++) {
                     $h = $hist_size - $hist_idx - 2 + $i;
-                    $sess[$this->mid]['history'][$h] = $hist_copy[$i];
+                    $this->sess_mid['history'][$h] = $hist_copy[$i];
                     if ($i == 0 && $h > 0) { // special case: prevent going back to previous part of history (using an 'init' item)
-                        $sess[$this->mid]['history'][$h-1]['init'] = True;
+                        $this->sess_mid['history'][$h-1]['init'] = True;
                     }
                 }
                 // add new cell at last slot
-                $sess[$this->mid]['history'][$hist_size-1] = newHistoryCell(); // add new cell
+                $this->sess_mid['history'][$hist_size-1] = newHistoryCell(); // add new cell
 
             } else {
 
                 // new action is initiated at the end of history: simply append a new cell at the 
                 // right, and pop the oldest one at the left
-                $prev_hist_cell = array_deep_copy($sess[$this->mid]['history'][$hist_size-1]);
-                $sess[$this->mid]['history'][] = newHistoryCell(); // add new cell
-                array_shift($sess[$this->mid]['history']); // remove oldest one
+                $prev_hist_cell = array_deep_copy($this->sess_mid['history'][$hist_size-1]);
+                $this->sess_mid['history'][] = newHistoryCell(); // add new cell
+                array_shift($this->sess_mid['history']); // remove oldest one
 
             }
 
             // copy every prev cell element
             foreach ($prev_hist_cell as $item => $value) {
                 if ($item != 'dlayers' && $item != 'extent') {
-                    $sess[$this->mid]['history'][$hist_size - 1][$item] = $prev_hist_cell[$item];
+                    $this->sess_mid['history'][$hist_size - 1][$item] = $prev_hist_cell[$item];
                 }
             }
         }
 
-        $sess[$this->mid]['history_idx'] = ($sess[$this->mid]['history_size'] - 1);
-        $sess[$this->mid]['history'][$hist_size - 1]['extent'] = $this->getExtent();
+        $this->sess_mid['history_idx'] = ($this->sess_mid['history_size'] - 1);
+        $this->sess_mid['history'][$hist_size - 1]['extent'] = $this->getExtent();
         foreach ($this->dlayers as $name => $dlayer) {
             $dlayer->saveStateInSession();
         }
@@ -1406,9 +1406,8 @@ class DMap {
       @param value Value of the item to set (restricted to built-in types).
     */
     function setHistoryItem($item, $value) {
-        $sess = &$_SESSION;
-        $hist_idx = $sess[$this->mid]['history_idx'];
-        $sess[$this->mid]['history'][$hist_idx][$item] = $value;
+        $hist_idx = $this->sess_mid['history_idx'];
+        $this->sess_mid['history'][$hist_idx][$item] = $value;
     }
 
     /*!
@@ -1418,10 +1417,9 @@ class DMap {
       @return The value of the requested history item.
     */
     function getHistoryItem($item) {
-        $sess = &$_SESSION;
-        $hist_idx = $sess[$this->mid]['history_idx'] - 1;
-        assert(array_key_exists($item, $sess[$this->mid]['history'][$hist_idx]));
-        return $sess[$this->mid]['history'][$hist_idx][$item];
+        $hist_idx = $this->sess_mid['history_idx'] - 1;
+        assert(array_key_exists($item, $this->sess_mid['history'][$hist_idx]));
+        return $this->sess_mid['history'][$hist_idx][$item];
     }
 
 }

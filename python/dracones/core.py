@@ -533,10 +533,10 @@ class DLayer(object):
         Saves the state of the dlayer in the member session variable:
         filtered, selected, features items and the status are saved.
         """
-        self.dmap.sess[self.dmap.mid]['history'][-1]['dlayers'].setdefault(self.name, {})['filtered'] = self.filtered
-        self.dmap.sess[self.dmap.mid]['history'][-1]['dlayers'].setdefault(self.name, {})['selected'] = self.selected
-        self.dmap.sess[self.dmap.mid]['history'][-1]['dlayers'].setdefault(self.name, {})['features'] = self.features
-        self.dmap.sess[self.dmap.mid]['history'][-1]['dlayers'].setdefault(self.name, {})['status'] = self.getStatus()
+        self.dmap.sess_mid['history'][-1]['dlayers'].setdefault(self.name, {})['filtered'] = self.filtered
+        self.dmap.sess_mid['history'][-1]['dlayers'].setdefault(self.name, {})['selected'] = self.selected
+        self.dmap.sess_mid['history'][-1]['dlayers'].setdefault(self.name, {})['features'] = self.features
+        self.dmap.sess_mid['history'][-1]['dlayers'].setdefault(self.name, {})['status'] = self.getStatus()
 
     # accepts both items = { id -> {gx,gy,html}, ... }
     #          and items = [{gx,gy,html}, ...]
@@ -888,10 +888,11 @@ class DMap(mapObj):
         @type use_viewport_geom: bool
         @param use_viewport_geom: Only False for the export function.
         """
-        self.sess = sess
         self.mid = mid
-        self.app_name = sess[mid]['app']
-        map_file = "%s/%s.map" % (os.path.abspath(dconf[self.app_name]['mapfile_path']), sess[mid]['map'])
+        self.sess = sess
+        self.sess_mid = sess[mid]
+        self.app = sess[mid]['app']
+        map_file = "%s/%s.map" % (os.path.abspath(dconf[self.app]['mapfile_path']), sess[mid]['map'])
         super(DMap, self).__init__(map_file)
         if use_viewport_geom:
             self.map_size_rel_to_vp = 1            
@@ -1025,7 +1026,7 @@ class DMap(mapObj):
                 self.dlayers[dlayer_to_select].pointSelect(p, select_mode)
 
 
-    # image filename structure: <mapname>_<mid>_<session_id>.<img_type>
+    # image filename structure: <app>_<mid>_<map>_<session_id>.<img_type>
     def getImageURL(self):
         """
         Saves the map image and returns its URL.
@@ -1033,7 +1034,7 @@ class DMap(mapObj):
         """
         img = self.draw()
         img.imagepath = os.path.abspath(dconf['ms_tmp_path'])
-        fn = "%s_%s_%s.%s" % (self.sess[self.mid]['map'], self.mid, self.sess.session_id, self.imagetype)
+        fn = "%s_%s_%s_%s.%s" % (self.app, self.mid, self.sess_mid['map'], self.sess.session_id, self.imagetype)
         img_url = "%s%s%s" % (dconf['ms_tmp_url'], '' if dconf['ms_tmp_url'].endswith('/') else '/', fn)
         img.save("%s/%s" % (os.path.abspath(dconf['ms_tmp_path']), fn))
         return img_url
@@ -1062,14 +1063,14 @@ class DMap(mapObj):
         @type restore_extent: bool
         @param restore_extent: If False, will stay with map default extent.
         """
-        hist_idx = self.sess[self.mid]['history_idx']
+        hist_idx = self.sess_mid['history_idx']
         for name, dlayer in self.dlayers.items():
                 # important here to pass copies for compound types
-                dlayer.restoreState(self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['filtered'][:],
-                                    self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['selected'][:],
-                                    self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['features'].copy(),
-                                    self.sess[self.mid]['history'][hist_idx]['dlayers'][name]['status'])
-        xt = self.sess[self.mid]['history'][hist_idx]['extent']
+                dlayer.restoreState(self.sess_mid['history'][hist_idx]['dlayers'][name]['filtered'][:],
+                                    self.sess_mid['history'][hist_idx]['dlayers'][name]['selected'][:],
+                                    self.sess_mid['history'][hist_idx]['dlayers'][name]['features'].copy(),
+                                    self.sess_mid['history'][hist_idx]['dlayers'][name]['status'])
+        xt = self.sess_mid['history'][hist_idx]['extent']
         if restore_extent and xt:
             self.setExtent(xt['minx'], xt['miny'], xt['maxx'], xt['maxy'])
         
@@ -1094,34 +1095,34 @@ class DMap(mapObj):
             # the outcome should be: _ a b c f
             # Note that we must use a special "init" padding for the first element (_), to prevent going back to it.
             # The same mechanism is also used in the client module (for hover items history)
-            hist_idx = self.sess[self.mid]['history_idx']
-            hist_size = self.sess[self.mid]['history_size']
+            hist_idx = self.sess_mid['history_idx']
+            hist_size = self.sess_mid['history_size']
             if hist_idx != (hist_size - 1):
-                prev_hist_cell = copy.deepcopy(self.sess[self.mid]['history'][hist_idx])
+                prev_hist_cell = copy.deepcopy(self.sess_mid['history'][hist_idx])
                 # shift subset of history (0 to history_idx) to the far right (minus 1)
-                hist_copy = copy.deepcopy(self.sess[self.mid]['history'])
+                hist_copy = copy.deepcopy(self.sess_mid['history'])
                 for i in range(0, hist_idx + 1):
                     h = hist_size - hist_idx - 2 + i
-                    self.sess[self.mid]['history'][h] = hist_copy[i]
+                    self.sess_mid['history'][h] = hist_copy[i]
                     if i == 0 and h > 0: # special case: prevent going back to previous part of history (using an 'init' item)
-                        self.sess[self.mid]['history'][h-1]['init'] = True
+                        self.sess_mid['history'][h-1]['init'] = True
                 # add new cell at last slot
-                self.sess[self.mid]['history'][-1] = newHistoryCell() # add new cell
+                self.sess_mid['history'][-1] = newHistoryCell() # add new cell
 
             # new action is initiated at the end of history: simply append a new cell at the 
             # right, and pop the oldest one at the left
             else:
-                prev_hist_cell = copy.deepcopy(self.sess[self.mid]['history'][-1])
-                self.sess[self.mid]['history'].append(newHistoryCell()) # add new cell
-                self.sess[self.mid]['history'].pop(0) # remove oldest one
+                prev_hist_cell = copy.deepcopy(self.sess_mid['history'][-1])
+                self.sess_mid['history'].append(newHistoryCell()) # add new cell
+                self.sess_mid['history'].pop(0) # remove oldest one
 
             # copy every prev cell element
             for item in prev_hist_cell:
                 if item not in ['dlayers', 'extent']:
-                    self.sess[self.mid]['history'][-1][item] = prev_hist_cell[item]
+                    self.sess_mid['history'][-1][item] = prev_hist_cell[item]
             
-        self.sess[self.mid]['history_idx'] = (self.sess[self.mid]['history_size'] - 1) # make sure that pointer is to last elem
-        self.sess[self.mid]['history'][-1]['extent'] = self.getExtent()
+        self.sess_mid['history_idx'] = (self.sess_mid['history_size'] - 1) # make sure that pointer is to last elem
+        self.sess_mid['history'][-1]['extent'] = self.getExtent()
         for name, dlayer in self.dlayers.items():
             dlayer.saveStateInSession()
         
@@ -1270,8 +1271,8 @@ class DMap(mapObj):
         @type value: built-in type
         @param value: Value of the item to set (restricted to built-in types).
         """
-        hist_idx = self.sess[self.mid]['history_idx']
-        self.sess[self.mid]['history'][hist_idx][item] = copy.deepcopy(value)
+        hist_idx = self.sess_mid['history_idx']
+        self.sess_mid['history'][hist_idx][item] = copy.deepcopy(value)
 
 
     def getHistoryItem(self, item):
@@ -1282,6 +1283,6 @@ class DMap(mapObj):
         @param item: Name of the item to retrieve.
         @return: Value of the retrieved item.
         """
-        hist_idx = self.sess[self.mid]['history_idx'] - 1
-        assert item in self.sess[self.mid]['history'][hist_idx]
-        return self.sess[self.mid]['history'][hist_idx][item]
+        hist_idx = self.sess_mid['history_idx'] - 1
+        assert item in self.sess_mid['history'][hist_idx]
+        return self.sess_mid['history'][hist_idx][item]
